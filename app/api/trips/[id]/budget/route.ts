@@ -32,6 +32,26 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       [tripId]
     )
 
+    // Per-stop breakdown, including stops with no costed activities yet (LEFT JOIN),
+    // ordered by itinerary sequence rather than spend so it reads as a trip timeline.
+    const byStopRows = await query<{
+      stop_id: string; city_name: string; city_country: string
+      start_date: string; end_date: string; order_index: number
+      total: string | null; activity_count: string
+    }>(
+      `SELECT s.id AS stop_id, c.name AS city_name, c.country AS city_country,
+              s.start_date, s.end_date, s.order_index,
+              COALESCE(SUM(ta.cost), 0) AS total,
+              COUNT(ta.id) AS activity_count
+       FROM stops s
+       JOIN cities c ON c.id = s.city_id
+       LEFT JOIN trip_activities ta ON ta.stop_id = s.id
+       WHERE s.trip_id = $1
+       GROUP BY s.id, c.name, c.country, s.start_date, s.end_date, s.order_index
+       ORDER BY s.order_index ASC`,
+      [tripId]
+    )
+
     const byDayRows = await query<{ date: string; total: string }>(
       `SELECT ta.date, SUM(ta.cost) AS total
        FROM trip_activities ta
@@ -51,6 +71,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     }
 
     const byCity = byCityRows.map((row) => ({ city: row.city_name, total: Number(row.total) }))
+    const byStop = byStopRows.map((row) => ({
+      stopId: row.stop_id,
+      city: row.city_name,
+      country: row.city_country,
+      startDate: row.start_date,
+      endDate: row.end_date,
+      total: Number(row.total ?? 0),
+      activityCount: Number(row.activity_count),
+    }))
     const byDay = byDayRows.map((row) => ({ date: row.date, total: Number(row.total) }))
 
     const budgetAmount = trip.budget_amount != null ? Number(trip.budget_amount) : null
@@ -75,6 +104,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       tripDays,
       byCategory,
       byCity,
+      byStop,
       byDay,
     })
   } catch (err) {

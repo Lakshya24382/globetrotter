@@ -7,6 +7,8 @@ import {
   Search, Settings, Share2, Sparkles, Ticket, Trash2, Users, X,
 } from 'lucide-react'
 
+import { CategoryPieChart, CityBarChart, DailySpendChart } from './budget-charts'
+
 type Page = 'Overview' | 'My trips' | 'Discover' | 'Budget' | 'Settings' | 'Trip details'
 
 type SessionUser = { id: string; name: string; email: string; photo_url: string | null }
@@ -53,6 +55,7 @@ type Budget = {
   tripDays: number
   byCategory: Record<string, number>
   byCity: { city: string; total: number }[]
+  byStop: { stopId: string; city: string; country: string; startDate: string; endDate: string; total: number; activityCount: number }[]
   byDay: { date: string; total: number }[]
 }
 type CatalogActivity = { id: string; name: string; category: string; default_cost: string; duration_min: number; description: string | null }
@@ -127,6 +130,7 @@ export default function GlobeTrotterDashboard() {
   const [expandedStopId, setExpandedStopId] = useState<string | null>(null)
   const [activityModalStop, setActivityModalStop] = useState<TripDetailStop | null>(null)
   const [activityCatalog, setActivityCatalog] = useState<CatalogActivity[]>([])
+  const [pendingActivityCost, setPendingActivityCost] = useState(0)
   const [activityCatalogLoading, setActivityCatalogLoading] = useState(false)
   const [draggedStopId, setDraggedStopId] = useState<string | null>(null)
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
@@ -337,6 +341,7 @@ export default function GlobeTrotterDashboard() {
 
   const openActivityModal = async (stop: TripDetailStop) => {
     setActivityModalStop(stop)
+    setPendingActivityCost(0)
     setActivityCatalogLoading(true)
     try {
       const res = await fetch(`/api/activities?cityId=${stop.city_id}`)
@@ -369,7 +374,17 @@ export default function GlobeTrotterDashboard() {
     if (!res.ok) return showNotice(firstErrorMessage(result, 'Could not add activity'))
 
     setTripDetail((current) => (current ? { ...current, activities: [...current.activities, result.activity] } : current))
+    if (result.budgetSnapshot) {
+      setBudget((current) => {
+        const snap = result.budgetSnapshot
+        const percentUsed = snap.budgetAmount ? Math.round((snap.total / snap.budgetAmount) * 100) : null
+        return current
+          ? { ...current, total: snap.total, budgetAmount: snap.budgetAmount, remaining: snap.remaining, isOverBudget: snap.isOverBudget, percentUsed }
+          : current
+      })
+    }
     setActivityModalStop(null)
+    setPendingActivityCost(0)
     setExpandedStopId(activityModalStop.id)
     showNotice('Activity added')
   }
@@ -531,6 +546,7 @@ export default function GlobeTrotterDashboard() {
                   const picked = activityCatalog.find((a) => a.id === event.target.value)
                   const costInput = event.currentTarget.form?.elements.namedItem('cost') as HTMLInputElement | null
                   if (picked && costInput && !costInput.dataset.touched) costInput.value = picked.default_cost
+                  setPendingActivityCost(Number(costInput?.value ?? 0) || 0)
                 }}>
                   <option value="" disabled>Select an activity</option>
                   {activityCatalog.map((activity) => (
@@ -545,8 +561,13 @@ export default function GlobeTrotterDashboard() {
                 </label>
                 <label style={{ flex: 1 }}>Start time<input name="startTime" type="time" required /></label>
               </div>
-              <label>Cost<input name="cost" type="number" min={0} step="0.01" defaultValue={0} onChange={(event) => { event.currentTarget.dataset.touched = 'true' }} /></label>
+              <label>Cost<input name="cost" type="number" min={0} step="0.01" defaultValue={0} onChange={(event) => { event.currentTarget.dataset.touched = 'true'; setPendingActivityCost(Number(event.currentTarget.value) || 0) }} /></label>
               <label>Notes (optional)<input name="notes" placeholder="Booking reference, meeting point…" /></label>
+              {budget?.budgetAmount != null && budget.total + pendingActivityCost > budget.budgetAmount && (
+                <p className="over-budget-banner">
+                  Adding this would push you ${Math.round(budget.total + pendingActivityCost - budget.budgetAmount).toLocaleString()} over your ${budget.budgetAmount.toLocaleString()} budget.
+                </p>
+              )}
               <button className="primary-button modal-submit" type="submit">Add activity <ArrowUpRight size={17} /></button>
             </form>
           )}
@@ -704,17 +725,25 @@ function TripsPage({ trips, tripsLoading, onNewTrip, onSelect }: any) {
       </div>
       {tripsLoading ? <p className="muted">Loading…</p> : trips.length === 0 ? <p className="muted">No trips yet. Plan your first one above.</p> : (
         <div className="trip-library">
-          {trips.map((trip: DbTrip) => (
-            <button className="library-trip" key={trip.id} onClick={() => onSelect(trip)}>
-              <img src={trip.cover_photo || FALLBACK_IMAGE} alt={`${trip.name} travel view`} />
-              <div>
-                <span className="status-pill"><span /> {tripStatus(trip)}</span>
-                <h2>{trip.name}</h2>
-                <p>{formatRange(trip.start_date, trip.end_date)}</p>
-                <small>{trip.stops?.length ?? 0} stops · View itinerary <ArrowUpRight size={14} /></small>
-              </div>
-            </button>
-          ))}
+          {trips.map((trip: DbTrip) => {
+            const budgetAmount = trip.budget_amount != null ? Number(trip.budget_amount) : null
+            const totalSpent = trip.total_spent != null ? Number(trip.total_spent) : 0
+            const isOverBudget = budgetAmount != null && totalSpent > budgetAmount
+            return (
+              <button className="library-trip" key={trip.id} onClick={() => onSelect(trip)}>
+                <img src={trip.cover_photo || FALLBACK_IMAGE} alt={`${trip.name} travel view`} />
+                <div>
+                  <span className="status-pill"><span /> {tripStatus(trip)}</span>
+                  {isOverBudget && (
+                    <span className="status-pill over-budget-pill"><span /> Over budget</span>
+                  )}
+                  <h2>{trip.name}</h2>
+                  <p>{formatRange(trip.start_date, trip.end_date)}</p>
+                  <small>{trip.stops?.length ?? 0} stops · View itinerary <ArrowUpRight size={14} /></small>
+                </div>
+              </button>
+            )
+          })}
         </div>
       )}
     </div>
@@ -754,14 +783,35 @@ function DiscoverPage({ destinations, citiesLoading, query, setQuery, favorites,
 
 function BudgetPage({ trips, selectedTripId, onSelectTrip, budget, budgetError, totalSpent }: any) {
   const categories = budget ? Object.entries(budget.byCategory) as [string, number][] : []
-  const maxCategory = categories.reduce((max, [, amount]) => Math.max(max, amount), 1)
+  const categoryChartData = categories.map(([name, value]) => ({ name, value }))
   const cities = budget?.byCity ?? []
-  const maxCity = cities.reduce((max: number, row: { total: number }) => Math.max(max, row.total), 1)
+  const byDay = budget?.byDay ?? []
 
   const hasGoal = budget?.budgetAmount != null
   const percentUsed = budget?.percentUsed ?? 0
   const barPercent = Math.min(100, percentUsed)
   const isOverBudget = budget?.isOverBudget ?? false
+
+  // Flag the specific day whose activities first pushed cumulative spend past the goal,
+  // and any day where spend was unusually high vs the trip's daily average.
+  const dayAlerts = useMemo(() => {
+    if (byDay.length === 0) return []
+    const budgetAmount = budget?.budgetAmount ?? null
+    const avg = budget?.averagePerDay ?? 0
+    let running = 0
+    let crossed = false
+    const alerts: { date: string; total: number; reason: string }[] = []
+    for (const row of byDay) {
+      running += row.total
+      if (budgetAmount != null && !crossed && running > budgetAmount) {
+        crossed = true
+        alerts.push({ date: row.date, total: row.total, reason: `Cumulative spend crossed your $${budgetAmount.toLocaleString()} goal on this day` })
+      } else if (avg > 0 && row.total > avg * 2) {
+        alerts.push({ date: row.date, total: row.total, reason: `Spent ${Math.round(row.total / avg)}x your daily average` })
+      }
+    }
+    return alerts
+  }, [byDay, budget?.budgetAmount, budget?.averagePerDay])
 
   return (
     <div className="page-content budget-page">
@@ -788,56 +838,100 @@ function BudgetPage({ trips, selectedTripId, onSelectTrip, budget, budgetError, 
       ) : !budget ? (
         <p className="muted">Loading budget…</p>
       ) : (
-        <div className="budget-page-grid">
-          <section className="budget-breakdown-panel">
-            <div className="section-header"><div><p className="eyebrow">Where it goes</p><h2>Spending by category</h2></div></div>
+        <>
+          <div className="budget-page-grid">
+            <section className="budget-breakdown-panel">
+              <div className="section-header"><div><p className="eyebrow">Where it goes</p><h2>Spending by category</h2></div></div>
 
-            {isOverBudget && (
-              <div className="notice-banner" style={{ background: '#fee2e2', color: '#991b1b', borderRadius: '0.75rem', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.85rem', fontWeight: 600 }}>
-                Over budget by ${Math.abs(budget.remaining).toLocaleString()} — planned spend has passed your ${budget.budgetAmount.toLocaleString()} goal.
-              </div>
-            )}
-
-            <div className="budget-total"><strong>${totalSpent.toLocaleString()}</strong><span>total planned spend</span></div>
-
-            {hasGoal && (
-              <div style={{ marginBottom: '1.25rem' }}>
-                <div className="category-label" style={{ marginBottom: '0.35rem' }}>
-                  <span>Goal: <strong>${budget.budgetAmount.toLocaleString()}</strong></span>
-                  <b style={{ color: isOverBudget ? '#dc2626' : undefined }}>{percentUsed}% used</b>
+              {isOverBudget && (
+                <div className="notice-banner" style={{ background: '#fee2e2', color: '#991b1b', borderRadius: '0.75rem', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.85rem', fontWeight: 600 }}>
+                  Over budget by ${Math.abs(budget.remaining).toLocaleString()} — planned spend has passed your ${budget.budgetAmount.toLocaleString()} goal.
                 </div>
-                <div className="category-track">
-                  <span style={{ width: `${barPercent}%`, background: isOverBudget ? '#dc2626' : undefined }} />
+              )}
+
+              <div className="budget-total"><strong>${totalSpent.toLocaleString()}</strong><span>total planned spend</span></div>
+
+              {hasGoal && (
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <div className="category-label" style={{ marginBottom: '0.35rem' }}>
+                    <span>Goal: <strong>${budget.budgetAmount.toLocaleString()}</strong></span>
+                    <b style={{ color: isOverBudget ? '#dc2626' : undefined }}>{percentUsed}% used</b>
+                  </div>
+                  <div className="category-track">
+                    <span style={{ width: `${barPercent}%`, background: isOverBudget ? '#dc2626' : undefined }} />
+                  </div>
+                  <p className="muted" style={{ fontSize: '0.8rem', marginTop: '0.35rem' }}>
+                    {isOverBudget
+                      ? `$${Math.abs(budget.remaining).toLocaleString()} over goal`
+                      : `$${budget.remaining.toLocaleString()} remaining · ~$${budget.averagePerDay.toLocaleString()}/day over ${budget.tripDays} days`}
+                  </p>
                 </div>
-                <p className="muted" style={{ fontSize: '0.8rem', marginTop: '0.35rem' }}>
-                  {isOverBudget
-                    ? `$${Math.abs(budget.remaining).toLocaleString()} over goal`
-                    : `$${budget.remaining.toLocaleString()} remaining · ~$${budget.averagePerDay.toLocaleString()}/day over ${budget.tripDays} days`}
-                </p>
-              </div>
-            )}
+              )}
 
-            {categories.length === 0 && <p className="muted">No costed activities added yet.</p>}
-            {categories.map(([category, amount]) => (
-              <div className="category-row" key={category}>
-                <div className="category-label"><span><strong>{category}</strong></span><b>${amount.toLocaleString()}</b></div>
-                <div className="category-track"><span style={{ width: `${Math.round((amount / maxCategory) * 100)}%` }} /></div>
-              </div>
-            ))}
-          </section>
+              <CategoryPieChart data={categoryChartData} />
+            </section>
 
-          {cities.length > 0 && (
             <section className="budget-breakdown-panel">
               <div className="section-header"><div><p className="eyebrow">Where it's spent</p><h2>Spending by city</h2></div></div>
-              {cities.map((row: { city: string; total: number }) => (
-                <div className="category-row" key={row.city}>
-                  <div className="category-label"><span><strong>{row.city}</strong></span><b>${row.total.toLocaleString()}</b></div>
-                  <div className="category-track"><span style={{ width: `${Math.round((row.total / maxCity) * 100)}%` }} /></div>
-                </div>
-              ))}
+              <CityBarChart data={cities} />
             </section>
-          )}
-        </div>
+          </div>
+
+          <div className="budget-page-grid" style={{ marginTop: '1.25rem' }}>
+            <section className="budget-breakdown-panel">
+              <div className="section-header"><div><p className="eyebrow">Stop by stop</p><h2>Spending along the route</h2></div></div>
+              {(budget.byStop ?? []).length === 0 ? (
+                <p className="muted">Add stops to see a per-stop breakdown.</p>
+              ) : (
+                <div className="stop-budget-list">
+                  {budget.byStop.map((stop: Budget['byStop'][number]) => {
+                    const share = budget.total > 0 ? Math.round((stop.total / budget.total) * 100) : 0
+                    return (
+                      <div className="stop-budget-row" key={stop.stopId}>
+                        <div className="stop-budget-info">
+                          <strong>{stop.city}, {stop.country}</strong>
+                          <p className="muted" style={{ margin: '2px 0 0', fontSize: '0.78rem' }}>
+                            {formatRange(stop.startDate, stop.endDate)} · {stop.activityCount} {stop.activityCount === 1 ? 'activity' : 'activities'}
+                          </p>
+                          <div className="category-track" style={{ marginTop: '0.5rem' }}>
+                            <span style={{ width: `${share}%` }} />
+                          </div>
+                        </div>
+                        <b>${stop.total.toLocaleString()}</b>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </section>
+
+            <section className="budget-breakdown-panel">
+              <div className="section-header"><div><p className="eyebrow">Over time</p><h2>Cumulative spend</h2></div></div>
+              <DailySpendChart data={byDay} budgetAmount={budget.budgetAmount} />
+            </section>
+          </div>
+
+          <div className="budget-page-grid" style={{ marginTop: '1.25rem' }}>
+            <section className="budget-breakdown-panel">
+              <div className="section-header"><div><p className="eyebrow">Heads up</p><h2>Budget alerts</h2></div></div>
+              {dayAlerts.length === 0 ? (
+                <p className="muted">No unusual spending days detected.</p>
+              ) : (
+                <div className="budget-alert-list">
+                  {dayAlerts.map((alert, i) => (
+                    <div className="budget-alert-row" key={i}>
+                      <div>
+                        <strong>{new Date(alert.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</strong>
+                        <p className="muted" style={{ margin: '2px 0 0', fontSize: '0.78rem' }}>{alert.reason}</p>
+                      </div>
+                      <b style={{ color: '#dc2626' }}>${alert.total.toLocaleString()}</b>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        </>
       )}
     </div>
   )

@@ -1,38 +1,82 @@
-import { NextResponse } from 'next/server'
-import { query, queryOne } from '@/lib/db'
-import { getSessionUserId } from '@/lib/auth'
+import { NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/admin-auth";
+import { db } from "@/lib/db";
+import type { AdminStatsResponse, EngagementSummary, TimeSeriesPoint } from "@/types/admin";
+
+// Swap the `db.*` calls below for your actual ORM/query layer (Prisma, Drizzle,
+// raw SQL, etc). The shape returned to the client is what matters.
+
+const TIME_SERIES_DAYS = 30;
+
+async function getEngagementSummary(): Promise<EngagementSummary> {
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const startOfWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  const [
+    totalUsers,
+    activeUsers7d,
+    activeUsers30d,
+    newUsersThisWeek,
+    totalTrips,
+    totalActivities,
+  ] = await Promise.all([
+    db.user.count(),
+    db.user.count({ where: { lastActiveAt: { gte: sevenDaysAgo } } }),
+    db.user.count({ where: { lastActiveAt: { gte: thirtyDaysAgo } } }),
+    db.user.count({ where: { createdAt: { gte: startOfWeek } } }),
+    db.trip.count(),
+    db.activity.count(),
+  ]);
+
+  return {
+    totalUsers,
+    activeUsers7d,
+    activeUsers30d,
+    newUsersThisWeek,
+    totalTrips,
+    totalActivities,
+    avgActivitiesPerTrip: totalTrips > 0 ? totalActivities / totalTrips : 0,
+  };
+}
+
+async function getTimeSeries(): Promise<TimeSeriesPoint[]> {
+  const since = new Date(Date.now() - TIME_SERIES_DAYS * 24 * 60 * 60 * 1000);
+
+  // Expect this to return one row per day. If your DB layer doesn't have a
+  // groupByDay helper, do this with a raw SQL query (date_trunc('day', ...))
+  // or a Prisma $queryRaw call instead.
+  const rows = await db.analytics.groupByDay({
+    since,
+    metrics: ["activeUsers", "newTrips", "activitiesLogged"],
+  });
+
+  return rows.map((row) => ({
+    date: row.date,
+    activeUsers: row.activeUsers,
+    newTrips: row.newTrips,
+    activitiesLogged: row.activitiesLogged,
+  }));
+}
 
 export async function GET() {
-  const userId = await getSessionUserId()
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard.response;
 
-  const requester = await queryOne<{ is_admin: boolean }>('SELECT is_admin FROM users WHERE id = $1', [userId])
-  if (!requester?.is_admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  try {
+    const [summary, timeSeries] = await Promise.all([
+      getEngagementSummary(),
+      getTimeSeries(),
+    ]);
 
-  const [{ count: userCount }] = await query<{ count: string }>('SELECT COUNT(*) FROM users')
-  const [{ count: tripCount }] = await query<{ count: string }>('SELECT COUNT(*) FROM trips')
-  const [{ count: publicTripCount }] = await query<{ count: string }>('SELECT COUNT(*) FROM trips WHERE is_public = TRUE')
-
-  const topCities = await query<{ name: string; country: string; trip_count: string }>(
-    `SELECT c.name, c.country, COUNT(DISTINCT s.trip_id) AS trip_count
-     FROM cities c JOIN stops s ON s.city_id = c.id
-     GROUP BY c.id, c.name, c.country
-     ORDER BY trip_count DESC LIMIT 5`
-  )
-  const topActivities = await query<{ name: string; category: string; use_count: string }>(
-    `SELECT a.name, a.category, COUNT(ta.id) AS use_count
-     FROM activities a JOIN trip_activities ta ON ta.activity_id = a.id
-     GROUP BY a.id, a.name, a.category
-     ORDER BY use_count DESC LIMIT 5`
-  )
-  const recentUsers = await query<{ name: string; email: string; created_at: string }>(
-    'SELECT name, email, created_at FROM users ORDER BY created_at DESC LIMIT 8'
-  )
-
-  return NextResponse.json({
-    totals: { users: Number(userCount), trips: Number(tripCount), publicTrips: Number(publicTripCount) },
-    topCities: topCities.map((c) => ({ ...c, trip_count: Number(c.trip_count) })),
-    topActivities: topActivities.map((a) => ({ ...a, use_count: Number(a.use_count) })),
-    recentUsers,
-  })
+    const payload: AdminStatsResponse = { summary, timeSeries };
+    return NextResponse.json(payload);
+  } catch (err) {
+    console.error("GET /api/admin/stats failed", err);
+    return NextResponse.json(
+      { error: "Failed to load admin stats" },
+      { status: 500 }
+    );
+  }
 }

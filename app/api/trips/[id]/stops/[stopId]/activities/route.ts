@@ -35,5 +35,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
      WHERE ta.id = $1`,
     [(tripActivity as any).id]
   )
-  return NextResponse.json({ activity: withMeta }, { status: 201 })
+
+  // Recompute the trip's running total against its budget goal (if any) so the client
+  // can warn immediately without a second round trip.
+  const trip = await queryOne<{ budget_amount: string | null }>(
+    `SELECT budget_amount FROM trips WHERE id = $1`,
+    [tripId]
+  )
+  const totals = await queryOne<{ total: string }>(
+    `SELECT COALESCE(SUM(ta.cost), 0) AS total
+     FROM trip_activities ta
+     JOIN stops s ON s.id = ta.stop_id
+     WHERE s.trip_id = $1`,
+    [tripId]
+  )
+  const totalSpent = Number(totals?.total ?? 0)
+  const budgetAmount = trip?.budget_amount != null ? Number(trip.budget_amount) : null
+  const remaining = budgetAmount != null ? budgetAmount - totalSpent : null
+  const isOverBudget = budgetAmount != null ? totalSpent > budgetAmount : false
+
+  return NextResponse.json(
+    { activity: withMeta, budgetSnapshot: { total: totalSpent, budgetAmount, remaining, isOverBudget } },
+    { status: 201 }
+  )
 }

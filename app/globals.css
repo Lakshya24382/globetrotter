@@ -57,6 +57,11 @@ button:focus-visible, input:focus-visible { outline: 3px solid color-mix(in srgb
 .library-trip:hover, .library-trip-active { border-color: #a8c9bd; transform: translateY(-3px); box-shadow: 0 10px 24px rgba(31,70,62,.08); }
 .library-trip img { width: 100%; height: 190px; object-fit: cover; display: block; }
 .library-trip > div { padding: 18px; } .library-trip h2 { font-size: 25px; margin: 13px 0 3px; } .library-trip p { color: var(--muted-foreground); font-size: 11px; margin: 0 0 18px; } .library-trip small { color: var(--primary); font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+.library-trip .status-pill { background: rgba(69,173,140,.12); }
+.library-trip .status-pill + .status-pill { margin-left: 6px; }
+.over-budget-pill { background: rgba(220,38,38,.12) !important; color: #dc2626 !important; }
+.over-budget-pill span { background: #dc2626 !important; }
+.over-budget-banner { margin: 0 0 14px; padding: 10px 13px; border-radius: 10px; background: rgba(220,38,38,.09); border: 1px solid rgba(220,38,38,.25); color: #dc2626; font-size: 12.5px; font-weight: 600; line-height: 1.4; }
 .discover-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-bottom: 28px; } .search-box.wide { width: min(100%, 360px); padding: 12px 0; } .destination-grid-large { grid-template-columns: repeat(3, 1fr); } .destination-grid-large .destination-image { height: 220px; }
 .budget-page { background: radial-gradient(circle at 82% 5%, rgba(207,231,220,.42), transparent 28%); }
 .budget-heading { margin-bottom: 28px; }
@@ -76,6 +81,12 @@ button:focus-visible, input:focus-visible { outline: 3px solid color-mix(in srgb
 .budget-page-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(300px, .9fr); gap: 18px; }
 .budget-breakdown-panel { padding: 25px; background: var(--card); border: 1px solid var(--border); border-radius: 11px; }
 .budget-breakdown-panel h2, .expense-list-polished h2 { font-size: 25px; margin: 0; }
+.budget-alert-list { display: flex; flex-direction: column; gap: 10px; }
+.budget-alert-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 13px; border-radius: 9px; background: rgba(220,38,38,.06); border: 1px solid rgba(220,38,38,.18); }
+.stop-budget-list { display: flex; flex-direction: column; gap: 14px; }
+.stop-budget-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.stop-budget-row:last-child { border-bottom: none; padding-bottom: 0; }
+.stop-budget-info { flex: 1; min-width: 0; }
 .category-bars { display: flex; flex-direction: column; gap: 22px; margin-top: 27px; }
 .category-label { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; }
 .category-icon { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 8px; font-size: 13px; }.category-flight { color: #b66a4f; background: #fbe6dd; }.category-stay { color: #318a77; background: #dcefe8; }.category-food { color: #aa8838; background: #f8efc9; }
