@@ -13,22 +13,14 @@ export async function createSession(userId: string) {
     .setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('7d')
     .sign(secret)
-
   const store = await cookies()
-  store.set(COOKIE, token, { 
-    httpOnly: true, 
-    sameSite: 'lax', 
-    secure: process.env.NODE_ENV === 'production', 
-    path: '/', 
-    maxAge: 60 * 60 * 24 * 7 
-  })
+  store.set(COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 60 * 60 * 24 * 7 })
 }
 
 export async function getSessionUserId(): Promise<string | null> {
   const store = await cookies()
   const token = store.get(COOKIE)?.value
   if (!token) return null
-
   try {
     const { payload } = await jwtVerify(token, secret)
     return (payload.sub as string) ?? null
