@@ -46,11 +46,21 @@ CREATE TABLE IF NOT EXISTS trips (
   end_date       DATE NOT NULL,
   is_public      BOOLEAN NOT NULL DEFAULT FALSE,
   share_slug     TEXT UNIQUE,
+  budget_amount  NUMERIC(10,2),   -- optional budget goal the traveler sets for the whole trip
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CHECK (end_date >= start_date)
+  CHECK (end_date >= start_date),
+  CHECK (budget_amount IS NULL OR budget_amount >= 0)
 );
 CREATE INDEX IF NOT EXISTS idx_trips_owner ON trips(owner_id);
+
+-- Older databases created before budget_amount existed: add it on re-run.
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS budget_amount NUMERIC(10,2);
+
+DO $$ BEGIN
+  ALTER TABLE trips ADD CONSTRAINT trips_budget_amount_nonneg CHECK (budget_amount IS NULL OR budget_amount >= 0);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS stops (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),

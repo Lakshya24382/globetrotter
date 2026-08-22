@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { query, queryOne } from '@/lib/db'
 import { getSessionUserId } from '@/lib/auth'
-import { tripSchema } from '@/lib/validation/schemas'
+import { tripUpdateSchema } from '@/lib/validation/schemas'
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -30,13 +30,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const owned = await queryOne('SELECT id FROM trips WHERE id = $1 AND owner_id = $2', [id, userId])
   if (!owned) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const parsed = tripSchema.partial().safeParse(await req.json())
+  const parsed = tripUpdateSchema.safeParse(await req.json())
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
 
   const fields = Object.entries(parsed.data)
   if (fields.length === 0) return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
 
-  const columnMap: Record<string, string> = { name: 'name', description: 'description', startDate: 'start_date', endDate: 'end_date', coverPhoto: 'cover_photo' }
+  const columnMap: Record<string, string> = { name: 'name', description: 'description', startDate: 'start_date', endDate: 'end_date', coverPhoto: 'cover_photo', budgetAmount: 'budget_amount' }
   const setClauses = fields.map(([key], i) => `${columnMap[key]} = $${i + 2}`)
   const values = fields.map(([, value]) => value)
 

@@ -13,22 +13,37 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 })
 
-export const tripSchema = z.object({
+const tripBaseSchema = z.object({
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(1000).optional(),
   startDate: z.coerce.date(),
   endDate: z.coerce.date(),
   coverPhoto: z.string().url().optional(),
-}).refine((d) => d.endDate >= d.startDate, {
+  budgetAmount: z.coerce.number().nonnegative().max(10_000_000).optional(),
+})
+
+export const tripSchema = tripBaseSchema.refine((d) => d.endDate >= d.startDate, {
   message: 'End date must be on/after the start date',
   path: ['endDate'],
 })
+
+// Zod v4 forbids .partial() on a schema that already has .refine() applied,
+// so PATCH (partial updates) gets its own schema built from the same base fields.
+export const tripUpdateSchema = tripBaseSchema.partial().refine(
+  (d) => !d.startDate || !d.endDate || d.endDate >= d.startDate,
+  { message: 'End date must be on/after the start date', path: ['endDate'] }
+)
 
 export const stopSchema = z.object({
   cityId: z.string().uuid(),
   startDate: z.coerce.date(),
   endDate: z.coerce.date(),
 }).refine((d) => d.endDate >= d.startDate, { message: 'Stop end date before start date', path: ['endDate'] })
+
+export const profileUpdateSchema = z.object({
+  name: z.string().trim().min(2, 'Name is too short').max(80).optional(),
+  photoUrl: z.string().trim().url('Enter a valid URL').max(2000).optional().or(z.literal('')),
+})
 
 export const tripActivitySchema = z.object({
   activityId: z.string().uuid(),
