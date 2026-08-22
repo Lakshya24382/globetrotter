@@ -59,27 +59,61 @@ export default function GlobeTrotterDashboard() {
   const [notice, setNotice] = useState('')
   const [view, setView] = useState<'list' | 'grid'>('list')
   const [calendarOffset, setCalendarOffset] = useState(0)
-  const [authenticated, setAuthenticated] = useStoredState<boolean>('gt-authenticated', false)
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null) // null = "still checking"
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin')
   const [authError, setAuthError] = useState('')
 
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then((res) => res.json())
+      .then((data) => setAuthenticated(Boolean(data.user)))
+      .catch(() => setAuthenticated(false))
+  }, [])
+
   const showNotice = (message: string) => { setNotice(message); window.setTimeout(() => setNotice(''), 2600) }
-  const handleAuth = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleAuth = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
     const email = String(data.get('email') || '').trim()
     const password = String(data.get('password') || '')
-    if (!email.includes('@') || password.length < 4) { setAuthError('Enter a valid email and a password with at least 4 characters.'); return }
+    const name = String(data.get('name') || '').trim() // only present on the signup form
+
     setAuthError('')
+    const endpoint = authMode === 'signin' ? '/api/auth/login' : '/api/auth/signup'
+    const body = authMode === 'signin' ? { email, password } : { email, password, name }
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const result = await res.json()
+
+    if (!res.ok) {
+      const message = typeof result.error === 'string'
+        ? result.error
+        : Object.values(result.error?.fieldErrors ?? {}).flat()[0] ?? 'Something went wrong'
+      setAuthError(String(message))
+      return
+    }
+
     setAuthenticated(true)
-    showNotice(authMode === 'signin' ? 'Welcome back to GlobeTrotter' : 'Your demo account is ready')
+    showNotice(authMode === 'signin' ? 'Welcome back to GlobeTrotter' : 'Your account is ready')
   }
-  const signOut = () => { setAuthenticated(false); setProfileMenuOpen(false); setActive('Overview'); showNotice('Signed out of the demo account') }
+  const signOut = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    setAuthenticated(false)
+    setProfileMenuOpen(false)
+    setActive('Overview')
+    showNotice('Signed out')
+  }
 
   const visibleDestinations = useMemo(() => destinations.filter((d) => `${d.city} ${d.country}`.toLowerCase().includes(query.toLowerCase())), [query])
   const totalSpent = expenses.reduce((sum, expense) => sum + expense.amount, 0) + 1784
 
-  if (!authenticated) return <main className="auth-shell"><div className="auth-card"><Logo /><p className="eyebrow">Your travel desk</p><h1>{authMode === 'signin' ? 'Welcome back.' : 'Create your account.'}</h1><p className="heading-copy">Plan thoughtful trips, keep the details close, and leave room for discovery.</p><form className="auth-form" onSubmit={handleAuth}><label>Email address<input name="email" type="email" autoComplete="email" placeholder="alex@example.com" required /></label><label>Password<input name="password" type="password" autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} placeholder="At least 4 characters" required /></label>{authError && <p className="auth-error" role="alert">{authError}</p>}<button className="primary-button auth-submit" type="submit">{authMode === 'signin' ? 'Sign in' : 'Create demo account'} <ArrowUpRight size={17} /></button></form><button className="auth-switch" type="button" onClick={() => { setAuthMode(authMode === 'signin' ? 'signup' : 'signin'); setAuthError('') }}>{authMode === 'signin' ? 'New to GlobeTrotter? Create an account' : 'Already have an account? Sign in'}</button><p className="auth-demo-note">Demo authentication only — your session is saved in this browser.</p></div></main>
+  if (authenticated === null) return <main className="auth-shell"><p className="muted">Loading…</p></main>
+
+  if (!authenticated) return <main className="auth-shell"><div className="auth-card"><Logo /><p className="eyebrow">Your travel desk</p><h1>{authMode === 'signin' ? 'Welcome back.' : 'Create your account.'}</h1><p className="heading-copy">Plan thoughtful trips, keep the details close, and leave room for discovery.</p><form className="auth-form" onSubmit={handleAuth}>{authMode === 'signup' && <label>Full name<input name="name" type="text" autoComplete="name" placeholder="Alex Morgan" required /></label>}<label>Email address<input name="email" type="email" autoComplete="email" placeholder="alex@example.com" required /></label><label>Password<input name="password" type="password" autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} placeholder="At least 8 characters, one capital, one number" required /></label>{authError && <p className="auth-error" role="alert">{authError}</p>}<button className="primary-button auth-submit" type="submit">{authMode === 'signin' ? 'Sign in' : 'Create account'} <ArrowUpRight size={17} /></button></form><button className="auth-switch" type="button" onClick={() => { setAuthMode(authMode === 'signin' ? 'signup' : 'signin'); setAuthError('') }}>{authMode === 'signin' ? 'New to GlobeTrotter? Create an account' : 'Already have an account? Sign in'}</button></div></main>
 
   const nav = (page: Page) => { setActive(page); setMobileNav(false); setProfileMenuOpen(false) }
   const addTrip = (event: React.FormEvent<HTMLFormElement>) => {
@@ -105,9 +139,9 @@ export default function GlobeTrotterDashboard() {
     </aside>
     {mobileNav && <button className="nav-overlay" aria-label="Close menu" onClick={() => setMobileNav(false)} />}
     <section className="content-area"><header className="topbar"><button className="icon-button mobile-menu" aria-label="Open navigation" onClick={() => setMobileNav(true)}><Menu size={21} /></button><button className="breadcrumb" onClick={() => nav('Overview')}><span>Good morning, {profile.name.split(' ')[0]}</span><span className="breadcrumb-dot">/</span><span className="muted">{active}</span></button><div className="topbar-actions"><div className="search-box"><Search size={17} /><input aria-label="Search destinations" placeholder="Search destinations" value={query} onChange={(event) => setQuery(event.target.value)} /></div><button className="icon-button notification-button" aria-label="Notifications" onClick={() => showNotice('You are all caught up')}><Bell size={19} /><i /></button><button className="top-avatar" aria-label="Open settings" onClick={() => nav('Settings')}>AM</button></div></header>
-      {active === 'Overview' && <Overview trips={trips} favorites={favorites} toggleFavorite={(city) => setFavorites((current) => current.includes(city) ? current.filter((item) => item !== city) : [...current, city])} view={view} setView={setView} calendarOffset={calendarOffset} setCalendarOffset={setCalendarOffset} onNewTrip={() => setModalOpen(true)} onNavigate={nav} onNotice={showNotice} destinations={visibleDestinations} />}
-      {active === 'My trips' && <TripsPage trips={trips} onNewTrip={() => setModalOpen(true)} onSelect={(trip) => { setActive('Trip details'); showNotice(`${trip.city} selected`) }} />}
-      {active === 'Discover' && <DiscoverPage destinations={visibleDestinations} query={query} setQuery={setQuery} favorites={favorites} toggleFavorite={(city) => setFavorites((current) => current.includes(city) ? current.filter((item) => item !== city) : [...current, city])} onNotice={showNotice} />}
+      {active === 'Overview' && <Overview trips={trips} favorites={favorites} toggleFavorite={(city: string) => setFavorites((current) => current.includes(city) ? current.filter((item) => item !== city) : [...current, city])} view={view} setView={setView} calendarOffset={calendarOffset} setCalendarOffset={setCalendarOffset} onNewTrip={() => setModalOpen(true)} onNavigate={nav} onNotice={showNotice} destinations={visibleDestinations} />}
+      {active === 'My trips' && <TripsPage trips={trips} onNewTrip={() => setModalOpen(true)} onSelect={(trip: Trip) => { setActive('Trip details'); showNotice(`${trip.city} selected`) }} />}
+      {active === 'Discover' && <DiscoverPage destinations={visibleDestinations} query={query} setQuery={setQuery} favorites={favorites} toggleFavorite={(city: string) => setFavorites((current) => current.includes(city) ? current.filter((item) => item !== city) : [...current, city])} onNotice={showNotice} />}
       {active === 'Budget' && <BudgetPage totalSpent={totalSpent} expenses={expenses} onAdd={() => setExpenseOpen(true)} onNotice={showNotice} />}
       {active === 'Settings' && <SettingsPage profile={profile} setProfileOpen={setProfileOpen} onNotice={showNotice} />}
       {active === 'Trip details' && <TripDetailsPage trip={trips[0]} onNotice={showNotice} />}
